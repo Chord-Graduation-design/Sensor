@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+//temperature and humidity
+message TemperatureAndHumidity {
+    float temperature = 1;
+    float humidity = 2;
+}
+message LedSwitch {
+    bool on = 1;
+}
+message ServoAngle {
+    int32 angle = 1;
+}
+enum SensorType {
+    None = 0;
+    IN_CONTROL = 1;
+    SET_HUM_TEMP_TICK = 2;
+    LED_SWITCH = 3;
+    SERVO = 4;
+    BEEP = 6;
+}
+
+message SensorIn {
+    SensorType type = 1;
+    optional int32 tick = 2;
+}
+// protoc msg.proto --dart_out=./
