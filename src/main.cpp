@@ -9,12 +9,14 @@
 #include <Preferences.h>
 #include <MQUnifiedsensor.h>
 #include <ESP32Servo.h>
-Servo sg955;
+// Servo mg995;
+Servo sg90;
+
 WiFiClient   EspClient;
 PubSubClient MqttClient(EspClient);
 Preferences preferences;
 Adafruit_AHTX0 aht10;
-// MQUnifiedsensor MQ2("Arduino", 5, 10, GPIO_NUM_32, "MQ-2");
+MQUnifiedsensor MQ2("Arduino", 5, 10, GPIO_NUM_32, "MQ-2");
 uint32_t tick = 1500;
 void WifiConnect(){
   //从nvs中获取wifi信息
@@ -32,13 +34,17 @@ void WifiConnect(){
       delay(300);
       Serial.printf(".");
       //如果连接超时,则开始配网
-      if (tick_t++ > 300)
+      if (tick_t++ > 100)
         break;
     }
     if(WiFi.status() == WL_CONNECTED){
       return;
     }
     Serial.println("连接失败,开始配网...");
+    preferences.begin("wifi");
+    preferences.clear();
+    preferences.end();
+
   }
   else{
     Serial.println("无法获取到wifi信息,开始配网...");
@@ -66,7 +72,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
   uint8_t buffer[512];
   auto istream = pb_istream_from_buffer(payload,length);
   SensorIn sensor_in = SensorIn_init_zero;
- 
 
   if(pb_decode(&istream,SensorIn_fields,&sensor_in)){
     switch (sensor_in.type)
@@ -90,6 +95,14 @@ void callback(char* topic, byte* payload, unsigned int length) {
       Serial.println("我tm来了!!!!");
 
       MqttClient.publish(MqttConfig::LEDTopic,buffer,ostream.bytes_written);
+
+      ServoAngle servo_angle = ServoAngle_init_zero;
+      servo_angle.angle = sg90.read();
+      if(!pb_encode(&ostream,ServoAngle_fields,&servo_angle)){
+        Serial.println("编码失败!");
+        return;
+      }
+      MqttClient.publish(MqttConfig::ServoTopic,buffer,ostream.bytes_written);
       break;
     }
     case SensorType_LED_SWITCH:{
@@ -109,10 +122,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
       if (sensor_in.has_tick){
         Serial.printf("SERVO %d\n",sensor_in.tick);
 
-        sg955.write(sensor_in.tick);
+        sg90.write(sensor_in.tick);
         
         ServoAngle servo_angle = ServoAngle_init_zero;
-        servo_angle.angle = sg955.read();
+        servo_angle.angle = sg90.read();
         auto ostream = pb_ostream_from_buffer(buffer, sizeof(buffer));
         if(!pb_encode(&ostream,ServoAngle_fields,&servo_angle)){
           Serial.println("编码失败!");
@@ -123,9 +136,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
       break;
     }
     case SensorType_BEEP:{
-      // digitalWrite(GPIO_NUM_32,LOW);
-      // delay(100);
-      // digitalWrite(GPIO_NUM_32,HIGH);
+
+      digitalWrite(GPIO_NUM_33,LOW);
+      delay(sensor_in.tick);
+      digitalWrite(GPIO_NUM_33,HIGH);
       break;
     }
 
@@ -145,8 +159,8 @@ void MqttConnect(){
 
       MqttClient.subscribe(MqttConfig::InTopic);
     }else{
-      Serial.printf("mqtt 连接失败 错误代码:%x",MqttClient.state());
-      Serial.printf("五秒后尝试...");
+      Serial.printf("mqtt 连接失败 错误代码:%x\n",MqttClient.state());
+      Serial.printf("五秒后尝试...\n");
 
       delay(5000);
     }
@@ -164,16 +178,26 @@ void MqttLoop(void* param){
 void setup() {
   Serial.begin(115200);
   pinMode(GPIO_NUM_2,OUTPUT);
-  pinMode(GPIO_NUM_5,OUTPUT);
-  sg955.attach(GPIO_NUM_5);
-  // sg955.writeMicroseconds(500); 
-  sg955.write(0);
+  // pinMode(GPIO_NUM_32,OUTPUT);
+  pinMode(GPIO_NUM_33,OUTPUT);
+  //有源且低电平触发，初始化别bb
+  digitalWrite(GPIO_NUM_33,HIGH);
+  
+  // pinMode(GPIO_NUM_5,OUTPUT);
+  sg90.setPeriodHertz(50);
+  // mg995.attach(GPIO_NUM_5,1000,2000);
+  sg90.attach(GPIO_NUM_5,500, 2400);// sg90
+
+  // mg995.write(0);
   
   WifiConnect();
   Serial.println("\nWiFi 链接成功!!!");
   Serial.printf("ip 地址: %s\n",WiFi.localIP().toString().c_str());
+
+  //初始化mqtt
   MqttClient.setServer(MqttConfig::Broker,MqttConfig::Port);
   MqttClient.setCallback(callback);
+  
   delay(100);
 
 
@@ -184,10 +208,9 @@ void setup() {
   }
 
 
-  // MQ2.setRegressionMethod(1);
-  // MQ2.setA(574.25); MQ2.setB(-2.222); //检测天然气
+  MQ2.setRegressionMethod(1);
+  MQ2.setA(574.25); MQ2.setB(-2.222); //检测天然气
   // /*
-  //   Exponential regression:
   //   气体   | a      | b
   //   H2     | 987.99 | -2.162
   //   LPG    | 574.25 | -2.222
@@ -195,17 +218,17 @@ void setup() {
   //   Alcohol| 3616.1 | -2.675
   //   Propane| 658.71 | -2.168
   // */
-  // MQ2.init();
-  // Serial.print("Calibrating please wait.");
-  // float calcR0 = 0;
-  // for(int i = 1; i<=10; i ++)
-  // {
-  //   MQ2.update(); // Update data, the arduino will read the voltage from the analog pin
-  //   calcR0 += MQ2.calibrate(9.83);
-  //   Serial.print(".");
-  // }
-  // MQ2.setR0(calcR0/10);
-  // Serial.printf("%f  done!.\n",calcR0);
+  MQ2.init();
+  Serial.print("校准模块中，请等待！");
+  float calcR0 = 0;
+  for(int i = 1; i<=10; i ++)
+  {
+    MQ2.update(); // Update data, the arduino will read the voltage from the analog pin
+    calcR0 += MQ2.calibrate(9.83);
+    Serial.print(".");
+  }
+  MQ2.setR0(calcR0/10);
+  Serial.printf("%f  校准结束!.\n",calcR0);
 
 
 
@@ -239,25 +262,23 @@ void loop() {
     }
     MqttClient.publish(MqttConfig::Aht10Topic,buffer,ostream.bytes_written);
 
-    // MQ2.update();
-    // auto sensor = MQ2.readSensor();
-    // if(sensor > 100)
-    // {
-    //   //检测到天然气
-    //   Serial.printf("检测到天然气 %f\n",sensor);
-    // }
+    MQ2.update();
+    auto sensor = MQ2.readSensor();
+    Mq2Message mq2_message = Mq2Message_init_zero;
+    mq2_message.value = sensor;
+    if(!pb_encode(&ostream,Mq2Message_fields,&mq2_message)){
+      Serial.println("编码失败!");
+      return;
+    }
+    MqttClient.publish(MqttConfig::MQ2Topic,buffer,ostream.bytes_written);    
     // Serial.printf("MQ2: %f\n",sensor);
+    // digitalWrite(GPIO_NUM_5,LOW);
+    // delay(100);
+    // digitalWrite(GPIO_NUM_5,HIGH);
+      
+    // delay(10);
   }
   
   delay(100);
-  // MQ2.update();
-  // Serial.printf("MQ2: %f\n",MQ2.readSensor());
-  // sensors_event_t aht_humi, aht_temp;
-  // aht10.getEvent(&aht_humi, &aht_temp);
-  // auto temp = aht_temp.temperature;
-  // auto humi = aht_humi.relative_humidity;
-
-  // delay(2000);
-  // Serial.printf("temparr %f\nhumiarr %f\n",temp,humi);
 
 }

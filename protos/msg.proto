@@ -8,6 +8,9 @@ message TemperatureAndHumidity {
 message LedSwitch {
     bool on = 1;
 }
+message Mq2Message {
+    float value = 1;
+}
 message ServoAngle {
     int32 angle = 1;
 }

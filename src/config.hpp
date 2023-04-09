@@ -6,6 +6,7 @@ namespace MqttConfig
     constexpr auto Aht10Topic = "esp32/aht10";
     constexpr auto LEDTopic = "esp32/led";
     constexpr auto ServoTopic = "esp32/servo";
+    constexpr auto MQ2Topic = "esp32/mq2";
 
 }
 namespace Mq2Sensor
